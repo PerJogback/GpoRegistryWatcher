@@ -23,4 +23,11 @@ Must be Run as Administrator <img src="https://img.icons8.com/?size=100&id=1YDhw
 
 ## ⬇️ Installation
 
-Just download, build and run `GpoRegistryWatcher.exe` as Administrator
+### 🖥️ Option 1: As console app:
+- Just download, build and run `GpoRegistryWatcher.ConsoleApp.exe` as Administrator
+
+### ⚙️ Option 2: As Windows Service
+
+- Install service with the following command:
+`sc.exe create GpoRegistryWatcher.WinService start=auto binPath= "C:\WindowsServices\GpoRegistryWatcher.WinService\GpoRegistryWatcher.WinService.exe"`
+- Set it up to run as Administrator

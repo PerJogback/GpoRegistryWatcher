@@ -1,10 +1,11 @@
 ﻿using System.Management;
-using System.Runtime.InteropServices;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 
-namespace GpoRegistryWatcher
+namespace GpoRegistryWatcher.WinService
 {
-    internal partial class Program
+    public class RegistryWatcherService : BackgroundService
     {
         private const string RegPath = @"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System";
 
@@ -14,24 +15,33 @@ namespace GpoRegistryWatcher
             ["DontDisplayLastUsername"] = 0
         };
 
+        private readonly List<ManagementEventWatcher> _watchers = [];
         private static readonly Dictionary<string, DateTime> s_lastWrite = [];
         private static readonly TimeSpan s_cooldown = TimeSpan.FromSeconds(5);
 
-        static void Main()
-        {
-            EnsureConsole();
+        private readonly ILogger<RegistryWatcherService> _logger;
 
-            Console.WriteLine("Watching registry changes...");
+        public RegistryWatcherService(ILogger<RegistryWatcherService> logger)
+        {
+            _logger = logger;
+        }
+
+        protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            _logger.LogInformation("Watching registry changes...");
+
             FixCurrentValues();
 
             StartWatcher("EnableLUA");
             StartWatcher("DontDisplayLastUsername");
 
-            Console.WriteLine("Press ENTER to exit.");
-            Console.ReadLine();
+            // Vänta tills tjänsten stoppas
+            stoppingToken.Register(StopWatchers);
+
+            return Task.CompletedTask;
         }
 
-        static void StartWatcher(string valueName)
+        private void StartWatcher(string valueName)
         {
             var query = new WqlEventQuery($@"
                 SELECT * FROM RegistryValueChangeEvent
@@ -44,82 +54,84 @@ namespace GpoRegistryWatcher
             watcher.EventArrived += OnEventArrived;
 
             watcher.Start();
+            _watchers.Add(watcher);
+            _logger.LogInformation("Started watcher for {ValueName}", valueName);
         }
 
-        static void OnEventArrived(object sender, EventArrivedEventArgs e)
+        private void StopWatchers()
+        {
+            _logger.LogInformation("Stopping registry watchers...");
+
+            foreach (var watcher in _watchers)
+            {
+                try
+                {
+                    watcher.EventArrived -= OnEventArrived;
+                    watcher.Stop();
+                    watcher.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to stop watcher");
+                }
+            }
+
+            _watchers.Clear();
+        }
+
+        private void OnEventArrived(object sender, EventArrivedEventArgs e)
         {
             var valueName = (string)e.NewEvent["ValueName"];
 
             var current = ReadDword(valueName);
             var desired = s_desiredValues[valueName];
 
-            Console.WriteLine($"{DateTime.Now:g} {valueName} changed → {current}");
+            _logger.LogInformation("{ValueName} changed → {Current}", valueName, current);
 
             if (current != desired)
             {
                 if (s_lastWrite.TryGetValue(valueName, out var last) &&
                     DateTime.Now - last < s_cooldown)
                 {
-                    Console.WriteLine("  Skipping revert (cooldown)");
+                    _logger.LogInformation("  Skipping revert (cooldown)");
                     return;
                 }
 
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"  Reverting {valueName} → {desired}");
-                Console.ResetColor();
+                _logger.LogInformation("  Reverting {ValueName} → {Desired}", valueName, desired);
 
                 SetDword(valueName, desired);
                 s_lastWrite[valueName] = DateTime.Now;
             }
         }
 
-        static int ReadDword(string valueName)
+        private static int ReadDword(string valueName)
         {
             using var key = Registry.LocalMachine.OpenSubKey(RegPath);
             return key?.GetValue(valueName) as int? ?? -1;
         }
 
-        static void SetDword(string valueName, int value)
+        private static void SetDword(string valueName, int value)
         {
             using var key = Registry.LocalMachine.OpenSubKey(RegPath, writable: true);
             key?.SetValue(valueName, value, RegistryValueKind.DWord);
         }
 
-        static void FixCurrentValues()
+        private void FixCurrentValues()
         {
             foreach ((var valueName, var desired) in s_desiredValues)
             {
                 var current = ReadDword(valueName);
-                Console.WriteLine($"{valueName} = {current}");
+                _logger.LogInformation("{ValueName} = {Current}", valueName, current);
 
                 if (current != desired)
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"  Fixing {valueName} → {desired}");
-                    Console.ResetColor();
+                    _logger.LogInformation("  Fixing {ValueName} → {Desired}", valueName, desired);
 
                     SetDword(valueName, desired);
                     s_lastWrite[valueName] = DateTime.Now;
                 }
             }
         }
-
-        static void EnsureConsole()
-        {
-            const int ATTACH_PARENT_PROCESS = -1;
-
-            if (!AttachConsole(ATTACH_PARENT_PROCESS))
-            {
-                AllocConsole();
-            }
-        }
-
-#pragma warning disable SYSLIB1054
-
-        [DllImport("kernel32.dll")]
-        static extern bool AttachConsole(int dwProcessId);
-
-        [DllImport("kernel32.dll")]
-        static extern bool AllocConsole();
     }
 }
+
