@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Management;
+﻿using System.Management;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -29,7 +28,6 @@ namespace GpoRegistryWatcher.WinService
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            EventLog.WriteEntry("GpoRegistryWatcher", "Test direct write", EventLogEntryType.Information);
             _logger.LogInformation("Watching registry changes...");
 
             FixCurrentValues();
