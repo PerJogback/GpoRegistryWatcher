@@ -29,5 +29,5 @@ Must be Run as Administrator <img src="https://img.icons8.com/?size=100&id=1YDhw
 ### ⚙️ Option 2: As Windows Service
 
 - Install service with the following command:
-`sc.exe create GpoRegistryWatcher.WinService start=auto binPath= "C:\WindowsServices\GpoRegistryWatcher.WinService\GpoRegistryWatcher.WinService.exe"`
-- Set it up to run as Administrator
+`sc.exe create GpoRegistryWatcher.WinService start=auto binPath= "C:\WindowsServices\GpoRegistryWatcher.WinService\GpoRegistryWatcher.WinService.exe" DisplayName= "GPO Registry Watcher"`
+`sc.exe description GpoRegistryWatcher.WinService "Monitors and restores specific registry values to prevent unwanted GPO overrides."`
